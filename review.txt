@@ -1,0 +1,4 @@
+Nhận xét:
+Nhận thấy thuật toán chạy bằng thư viện nhanh gấp 7-10 lần so với thuật toán tự implement
+Nguyên nhân:
+Do thư viện đã tối ưu bộ nhớ và quá trình xử lý trên ram nên có thể sẽ dẫn đến nhanh hơn so với thuật toán tự implement
