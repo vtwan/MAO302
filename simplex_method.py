@@ -1,197 +1,230 @@
 import numpy as np
 import math
+import random
 import sys
 
-def e(len, i):
-    v = np.zeros(len)
-    v[i] = 1
+
+def e(l, p):
+    v = np.zeros(l)
+    v[p] = 1
     return v
 
-def primal_simplex(c, a, b, x):
-    res = dict()
-    #init
-    m = len(b) #number of basic var (constraints)
-    n = len(c) #number of non-basic var
 
-    all_var = np.arange(0, n + m)
-    n_idx = np.arange(0, n)
-    b_idx = np.arange(n, n+m)
+def primal_simplex(c, A, b, modified={}):
+    status = ''
+    n = len(c)
+    m = len(b)
+    # init
+    if modified == {}:
+        N_index = np.array(range(1, n + 1))
+        B_index = np.array(range(n + 1, n + m + 1))
 
-    B = np.identity(m)
-    N = a
-    a = np.concatenate((N ,B), axis=1)
+        B = np.identity(m)
+        A = np.concatenate([A, B], axis=1)
+        N = A[:, (N_index - 1)]
+        B = A[:, (B_index - 1)]
 
-    c_b = np.zeros(m)
-    c_n = c
+        c_b = np.zeros(m)
+        c_n = c
+        c = np.concatenate([c_n, c_b])
 
-    x_b = b
-    z_n = -c_n
-    x = np.concatenate((z_n, x_b))
-    
-    #loop
+        x_b = b
+        z_n = - c_n
+
+        x = np.concatenate([np.zeros(n), x_b])
+        z = np.concatenate([z_n, np.zeros(m)])
+        s, t = 0, 0
+        i, j = 0, 0
+    else:
+        x = modified['x']
+        z = modified['z']
+
+        B_index = modified['B_index']
+        N_index = modified['N_index']
+
+        c = np.concatenate([c, np.zeros(m)])
+        A = np.concatenate([A, np.identity(m)], axis=1)
+
+        N = A[:, (N_index - 1)]
+        B = A[:, (B_index - 1)]
+
+        c_b = c[B_index - 1]
+        c_n = c[N_index - 1]
+
+        x_b = np.dot(np.linalg.inv(B), b)
+        z_n = np.dot(np.dot(np.linalg.inv(B), N).T, c_b) - c_n
+
+        x = np.zeros(m + n)
+        z = np.zeros(m + n)
+
+        x[B_index - 1] = x_b
+        z[N_index - 1] = z_n
+
     while True:
         if np.all(z_n >= 0):
             status = 'optimal'
+            # print(z_n)
             break
-        
+
         j = np.where(z_n < 0)[0][0]
-        delta_x_b = np.dot(np.dot(np.linalg.inv(B), N), e(n, j))
+        e_j = e(n, j)
+        delta_xb = np.dot(np.dot(np.linalg.inv(B), N), e_j)
 
-        ratio = delta_x_b / x_b
-        ratio[ratio == np.Infinity] = 0
+        t = max(delta_xb / x_b) ** -1
+        i = np.argmax(delta_xb / x_b)
+        e_i = e(m, i)
 
-        t = np.max(ratio) ** -1
-        i = np.argmax(ratio)
-
-        if t <= 0:
-            status = 'unbouned'
-            print('unbounded')
-            break
-
-        delta_z_n = - np.dot(np.dot(np.linalg.inv(B), N).T, e(m, i))
+        delta_z_n = - np.dot(np.dot(np.linalg.inv(B), N).T, e_i)
 
         s = z_n[j] / delta_z_n[j]
-        
 
-        x_b = x_b - t * delta_x_b #update xb
-        x_b[j] = t
-        z_n = z_n - s * delta_z_n #update zn
-        z_n[i] = s
+        x_b = x_b - t * delta_xb
+        z_n = z_n - s * delta_z_n
 
-        #update optimal variable value
-        x[list(b_idx)[i]] = t
-        x[list(n_idx)[j]] = s
+        x[B_index - 1] = x_b
+        z[N_index - 1] = z_n
 
-        xi = np.dot(np.dot(c_b.T, np.linalg.inv(B)), b)  - np.dot((np.dot(np.dot(np.linalg.inv(B), N).T, c_b) - c_n).T, z_n)
+        j = N_index[j]
+        i = B_index[i]
 
-        temp_b = b_idx[i]
-        temp_n = n_idx[j]
+        x[j - 1] = t
+        z[i - 1] = s
 
-        b_idx[b_idx == temp_b] = temp_n
-        n_idx[n_idx == temp_n] = temp_b
+        # print(np.where(B_index == i), j)
+        B_index[np.where(B_index == i)[0][0]] = j
+        N_index[np.where(N_index == j)[0][0]] = i
 
-        B = a[:, b_idx]
-        N = a[:, n_idx]
+        B_index = np.sort(B_index)
+        N_index = np.sort(N_index)
 
-    if status == 'optimal':
-        res = {
+        x_b = x[B_index - 1]
+        z_n = z[N_index - 1]
+
+        B = A[:, (B_index-1)]
+        N = A[:, (N_index-1)]
+
+    obj = np.dot(c.T, x)
+
+    result = {
         'status': status,
-        'optimal value': np.dot(c.T, x[0:n]),
-        'x': x
-        }
-    else:
-        res = {
-            'status': status
-        }
-
-    return res
+        'optimal value': obj,
+        'x': x,
+        'B_index': B_index,
+        'N_index': N_index
+    }
+    return result
 
 
-
-def dual_simplex(c, a, b, x):
-    res = dict()
-    #init
-    m = len(b) #number of basic var (constraints)
-    n = len(c) #number of non-basic var
-
-    all_var = np.arange(0, n + m)
-    n_idx = np.arange(0, n)
-    b_idx = np.arange(n, n+m)
+def dual_simplex(c, A, b):
+    status = ''
+    n = len(c)
+    m = len(b)
+    # init
+    N_index = np.array(range(1, n + 1))
+    B_index = np.array(range(n + 1, n + m + 1))
 
     B = np.identity(m)
-    N = a
-    a = np.concatenate((N ,B), axis=1)
+    A = np.concatenate([A, B], axis=1)
+    N = A[:, (N_index - 1)]
+    B = A[:, (B_index - 1)]
 
     c_b = np.zeros(m)
     c_n = c
+    c = np.concatenate([c_n, c_b])
 
     x_b = b
-    z_n = -c_n
-    x = np.concatenate((z_n, x_b))
-    
-    #loop
+    z_n = - c_n
+
+    x = np.concatenate([np.zeros(n), x_b])
+    z = np.concatenate([z_n, np.zeros(m)])
+    s, t = 0, 0
+    i, j = 0, 0
+
     while True:
         if np.all(x_b >= 0):
             status = 'optimal'
             break
-        
+
         i = np.where(x_b < 0)[0][0]
-        delta_z_n = - np.dot(np.dot(np.linalg.inv(B), N).T, e(m, i))
+        e_i = e(m, i)
+        # delta_xb = np.dot(np.dot(np.linalg.inv(B), N), e_j)
+        delta_z_n = - np.dot(np.dot(np.linalg.inv(B), N).T, e_i)
 
-        ratio = delta_z_n / z_n
-        ratio[ratio == np.Infinity] = 0
+        s = max(delta_z_n / z_n) ** -1
+        j = np.argmax(delta_z_n / z_n)
+        e_j = e(n, j)
 
-        s = np.max(ratio) ** -1
-        j = np.argmax(ratio)
+        # delta_z_n = - np.dot(np.dot(np.linalg.inv(B), N).T, e_i)
+        delta_xb = np.dot(np.dot(np.linalg.inv(B), N), e_j)
 
-        if s <= 0:
-            status = 'unbouned'
-            print('unbounded')
-            break
+        t = x_b[i] / delta_xb[i]
 
-        delta_x_b = np.dot(np.dot(np.linalg.inv(B), N), e(n, j))
+        x_b = x_b - t * delta_xb
+        z_n = z_n - s * delta_z_n
 
-        t = x_b[i] / delta_x_b[i]
-        
+        x[B_index - 1] = x_b
+        z[N_index - 1] = z_n
 
-        x_b = x_b - t * delta_x_b #update xb
-        x_b[j] = t
-        z_n = z_n - s * delta_z_n #update zn
-        z_n[i] = s
-        x = np.concatenate((z_n, x_b))
+        j = N_index[j]
+        i = B_index[i]
 
-        # #update optimal variable value
-        # x[list(b_idx)[i]] = t
-        # x[list(n_idx)[j]] = s
+        x[j - 1] = t
+        z[i - 1] = s
 
-        
-        temp_b = b_idx[i]
-        temp_n = n_idx[j]
+        # print(np.where(B_index == i), j)
+        B_index[np.where(B_index == i)[0][0]] = j
+        N_index[np.where(N_index == j)[0][0]] = i
 
-        b_idx[b_idx == temp_b] = temp_n
-        n_idx[n_idx == temp_n] = temp_b
+        B_index = np.sort(B_index)
+        N_index = np.sort(N_index)
 
-        B = a[:, b_idx]
-        N = a[:, n_idx]
+        x_b = x[B_index - 1]
+        z_n = z[N_index - 1]
 
-    if status == 'optimal':
-        res = {
+        B = A[:, (B_index-1)]
+        N = A[:, (N_index-1)]
+
+    obj = np.dot(c.T, x)
+
+    result = {
         'status': status,
-        'optimal value': np.dot(c.T, x[0:n]),
+        'optimal value': obj,
         'x': x,
-        'x_b': x_b,
-        'z_n': z_n,
-        'B': B,
-        'N': N
-        }
-    else:
-        res = {
-            'status': status
-        }
-
-    return res
+        'z': z,
+        'B_index': B_index,
+        'N_index': N_index
+    }
+    return result
 
 
-def simplex(c, a, b):
+def two_phase(c, A, b):
+    c_mod = np.ones(len(c)) * -1
+    modified_prob = dual_simplex(c_mod, A, b)
+
+    N_index = modified_prob['N_index']
+    B_index = modified_prob['B_index']
+
+    result = primal_simplex(c, A, b, modified=modified_prob)
+    return result
+
+
+def simplex_method(c, A, b):
     x_b = b
     z_n = -c
-    x = np.array([])
-
-    if np.all(x_b >= 0):
-        res = primal_simplex(c, a, b, x)
-    elif np.all(z_n >= 0):
-        res = dual_simplex(c, a, b, x)
+    if np.all(x_b >= 0) and np.any(z_n < 0):
+        print(primal_simplex(c, A, b))
+    elif np.all(z_n >= 0) and np.any(x_b < 0):
+        print(dual_simplex(c, A, b))
     else:
-        c_1 = - np.ones(len(c))
-        res_1 = dual_simplex(c, a, b, x)
+        print(two_phase(c, A, b))
 
+if __name__ == '__main__':
+    sys.stdout = open('out.txt', 'w')
 
-
-    return res
-
-# if __name__=="__main__":
-#     c = np.array([4,-3])
-#     a = np.array([[1,-1],[2,-1],[0,1]])
-#     b = np.array([1, 3, 5])
-#     x = np.array([])
-#     print(primal_simplex(c, a, b, x))
+    c = np.array([2, -6, 0])
+    A = np.array([
+        [-1, -1, -1],
+        [2, -1, 1]
+    ])
+    b = np.array([-2, 1])
+    print(simplex_method(c, A, b))
